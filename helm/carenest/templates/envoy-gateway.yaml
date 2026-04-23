@@ -8,7 +8,7 @@ metadata:
   labels:
     app.kubernetes.io/name: carenest
 spec:
-  gatewayClassName: envoy
+  gatewayClassName: envoy-gateway-class
   listeners:
     - name: http
       protocol: HTTP
