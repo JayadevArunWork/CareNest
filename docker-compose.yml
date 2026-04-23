@@ -45,6 +45,7 @@ services:
       - PORT=3002
       - MONGO_URI=mongodb://mongo:27017/carenest_appointments
       - JWT_SECRET=${JWT_SECRET:-carenest_dev_secret_change_in_production}
+      - NOTIFY_SERVICE_URL=http://notify:3004
     depends_on:
       mongo:
         condition: service_healthy
@@ -61,6 +62,7 @@ services:
       - PORT=3003
       - MONGO_URI=mongodb://mongo:27017/carenest_pharmacy
       - JWT_SECRET=${JWT_SECRET:-carenest_dev_secret_change_in_production}
+      - NOTIFY_SERVICE_URL=http://notify:3004
     depends_on:
       mongo:
         condition: service_healthy

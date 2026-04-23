@@ -7,7 +7,19 @@ const createNotification = async (req, res) => {
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
-    const result = await notifyService.create(req.body);
+
+    // Auto-set userId from JWT if not provided in body
+    let payload = req.body;
+    if (Array.isArray(payload)) {
+      payload = payload.map((item) => ({
+        ...item,
+        userId: item.userId || req.user.id,
+      }));
+    } else {
+      payload = { ...payload, userId: payload.userId || req.user.id };
+    }
+
+    const result = await notifyService.create(payload);
     res.status(201).json({ message: 'Notification(s) created', notifications: Array.isArray(result) ? result : [result] });
   } catch (error) {
     res.status(400).json({ message: error.message });

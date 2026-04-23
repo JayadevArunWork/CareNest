@@ -4,6 +4,7 @@ import api from '../services/api';
 import DashboardLayout from '../components/DashboardLayout';
 import AppointmentCard from '../components/AppointmentCard';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { showToast } from '../components/Toast';
 import { Plus, X, CalendarDays } from 'lucide-react';
 
 export default function Appointments() {
@@ -46,23 +47,8 @@ export default function Appointments() {
       setShowModal(false);
       setForm({ doctorId: '', doctorName: '', date: '', time: '', reason: '' });
 
-      // Fire-and-forget notifications — never block/crash the main flow
-      try {
-        await api.post('/api/notifications', [
-          {
-            userId: user.id,
-            title: 'Appointment Booked',
-            message: `Your appointment with Dr. ${form.doctorName} on ${form.date} at ${form.time} has been submitted.`,
-            type: 'appointment',
-          },
-          {
-            userId: form.doctorId,
-            title: 'New Appointment Request',
-            message: `${user.name} booked an appointment on ${form.date} at ${form.time}.`,
-            type: 'appointment',
-          },
-        ]);
-      } catch (_) { /* notification failure is non-critical */ }
+      // Show toast popup
+      showToast(`Appointment booked with Dr. ${form.doctorName} on ${form.date}`);
     } catch (e) { console.error(e); }
     finally { setSubmitting(false); }
   };
