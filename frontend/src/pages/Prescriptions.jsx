@@ -40,6 +40,27 @@ export default function Prescriptions() {
       const res = await api.post('/api/prescriptions', form);
       setPrescriptions((prev) => [res.data.prescription, ...prev]);
       setShowModal(false);
+
+      const medNames = form.medications.map((m) => m.name).join(', ');
+
+      // Fire-and-forget notifications — never block/crash the main flow
+      try {
+        await api.post('/api/notifications', [
+          {
+            userId: form.patientId,
+            title: 'New Prescription',
+            message: `Dr. ${user.name} prescribed: ${medNames}.`,
+            type: 'prescription',
+          },
+          {
+            userId: user.id,
+            title: 'Prescription Created',
+            message: `Prescription for ${form.patientName} (${medNames}) has been submitted.`,
+            type: 'prescription',
+          },
+        ]);
+      } catch (_) { /* notification failure is non-critical */ }
+
       setForm({ patientId: '', patientName: '', notes: '', medications: [{ name: '', dosage: '', frequency: '', duration: '' }] });
     } catch (e) { console.error(e); }
     finally { setSubmitting(false); }

@@ -8,13 +8,16 @@ import {
   Menu,
   X,
   Heart,
+  Bell,
 } from 'lucide-react';
 import { useState } from 'react';
+import NotificationPanel from './NotificationPanel';
 
 const navItems = [
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard },
   { label: 'Appointments', to: '/appointments', icon: CalendarDays },
   { label: 'Prescriptions', to: '/prescriptions', icon: Pill },
+  { label: 'Notifications', to: null, icon: Bell, isNotification: true },
 ];
 
 export default function Sidebar() {
@@ -57,13 +60,16 @@ export default function Sidebar() {
         </button>
 
         {/* Logo */}
-        <div className="flex items-center gap-3 px-6 py-8">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white">
-            <Heart className="h-5 w-5" />
+        <div className="flex items-center justify-between px-6 py-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 text-white">
+              <Heart className="h-5 w-5" />
+            </div>
+            <span className="text-xl font-bold text-slate-800">
+              Care<span className="text-teal-600">Nest</span>
+            </span>
           </div>
-          <span className="text-xl font-bold text-slate-800">
-            Care<span className="text-teal-600">Nest</span>
-          </span>
+          <NotificationPanel />
         </div>
 
         {/* User card */}
@@ -81,7 +87,7 @@ export default function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 px-3">
-          {navItems.map(({ label, to, icon: Icon }) => {
+          {navItems.filter(item => !item.isNotification).map(({ label, to, icon: Icon }) => {
             const active = pathname === to;
             return (
               <Link

@@ -45,6 +45,24 @@ export default function Appointments() {
       setAppointments((prev) => [res.data.appointment, ...prev]);
       setShowModal(false);
       setForm({ doctorId: '', doctorName: '', date: '', time: '', reason: '' });
+
+      // Fire-and-forget notifications — never block/crash the main flow
+      try {
+        await api.post('/api/notifications', [
+          {
+            userId: user.id,
+            title: 'Appointment Booked',
+            message: `Your appointment with Dr. ${form.doctorName} on ${form.date} at ${form.time} has been submitted.`,
+            type: 'appointment',
+          },
+          {
+            userId: form.doctorId,
+            title: 'New Appointment Request',
+            message: `${user.name} booked an appointment on ${form.date} at ${form.time}.`,
+            type: 'appointment',
+          },
+        ]);
+      } catch (_) { /* notification failure is non-critical */ }
     } catch (e) { console.error(e); }
     finally { setSubmitting(false); }
   };

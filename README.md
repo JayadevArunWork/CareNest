@@ -10,7 +10,7 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-*A microservices-based healthcare application for managing appointments, prescriptions, and patient-doctor interactions — fully Dockerized and production-ready.*
+*A microservices-based healthcare application for managing appointments, prescriptions, notifications, and patient-doctor interactions — fully Dockerized and production-ready.*
 
 [Features](#-features) · [Architecture](#-architecture) · [Quick Start](#-quick-start) · [API Docs](#-api-endpoints) · [Docker](#-docker-usage)
 
@@ -43,6 +43,7 @@ Traditional healthcare systems often rely on fragmented tools and manual process
 | 🔐 **Authentication** | JWT-based auth with RBAC (Patient & Doctor roles) |
 | 📅 **Appointments** | Create, confirm, cancel, and complete appointments |
 | 💊 **Prescriptions** | Doctors create prescriptions; patients view and track them |
+| 🔔 **Notifications** | Real-time alerts for both patients and doctors on key actions |
 | 🎨 **Modern UI** | React + Tailwind CSS v4 with animations and responsive design |
 | 🐳 **Fully Dockerized** | Production-grade Dockerfiles with multi-stage builds |
 | 🏗️ **Microservices** | Independently deployable services with loose coupling |
@@ -53,20 +54,20 @@ Traditional healthcare systems often rely on fragmented tools and manual process
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      Frontend (React)                   │
-│                   Port 3000 (nginx:80)                  │
-└──────────┬──────────────┬──────────────┬────────────────┘
-           │              │              │
-    ┌──────▼──────┐ ┌─────▼──────┐ ┌────▼───────┐
-    │ Auth Service│ │Appointment │ │  Pharmacy  │
-    │  Port 3001  │ │  Port 3002 │ │  Port 3003 │
-    └──────┬──────┘ └─────┬──────┘ └────┬───────┘
-           │              │              │
-    ┌──────▼──────────────▼──────────────▼───────┐
-    │              MongoDB (Port 27017)           │
-    │    auth_db  │  appointments_db  │ pharma_db │
-    └─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        Frontend (React)                          │
+│                     Port 3000 (nginx:80)                         │
+└───────┬──────────────┬──────────────┬──────────────┬─────────────┘
+        │              │              │              │
+ ┌──────▼──────┐ ┌─────▼──────┐ ┌────▼───────┐ ┌────▼───────┐
+ │ Auth Service│ │Appointment │ │  Pharmacy  │ │   Notify   │
+ │  Port 3001  │ │  Port 3002 │ │  Port 3003 │ │  Port 3004 │
+ └──────┬──────┘ └─────┬──────┘ └────┬───────┘ └────┬───────┘
+        │              │              │              │
+ ┌──────▼──────────────▼──────────────▼──────────────▼───────┐
+ │                    MongoDB (Port 27017)                    │
+ │  auth_db  │  appointments_db  │  pharma_db  │  notify_db  │
+ └───────────────────────────────────────────────────────────┘
 ```
 
 ### Service Communication
@@ -104,6 +105,7 @@ CareNest/
 │   │   │   ├── ProtectedRoute.jsx
 │   │   │   ├── Sidebar.jsx
 │   │   │   ├── StatsCard.jsx
+│   │   │   ├── NotificationPanel.jsx
 │   │   │   └── StatusBadge.jsx
 │   │   ├── contexts/
 │   │   │   └── AuthContext.jsx        # Auth state management
@@ -153,14 +155,28 @@ CareNest/
 │   │   ├── .env.example
 │   │   └── package.json
 │   │
-│   └── pharmacy/                      # Pharmacy Service
+│   ├── pharmacy/                      # Pharmacy Service
+│   │   ├── src/
+│   │   │   ├── config/db.js
+│   │   │   ├── controllers/pharmacyController.js
+│   │   │   ├── middleware/auth.js
+│   │   │   ├── models/Prescription.js
+│   │   │   ├── routes/pharmacyRoutes.js
+│   │   │   ├── services/pharmacyService.js
+│   │   │   └── index.js
+│   │   ├── Dockerfile
+│   │   ├── .dockerignore
+│   │   ├── .env.example
+│   │   └── package.json
+│   │
+│   └── notify/                        # Notification Service
 │       ├── src/
 │       │   ├── config/db.js
-│       │   ├── controllers/pharmacyController.js
+│       │   ├── controllers/notifyController.js
 │       │   ├── middleware/auth.js
-│       │   ├── models/Prescription.js
-│       │   ├── routes/pharmacyRoutes.js
-│       │   ├── services/pharmacyService.js
+│       │   ├── models/Notification.js
+│       │   ├── routes/notifyRoutes.js
+│       │   ├── services/notifyService.js
 │       │   └── index.js
 │       ├── Dockerfile
 │       ├── .dockerignore
@@ -197,6 +213,7 @@ docker-compose up --build
 # Auth API:    http://localhost:3001
 # Appt API:    http://localhost:3002
 # Pharma API:  http://localhost:3003
+# Notify API:  http://localhost:3004
 ```
 
 ### Option 2: Run Services Locally
@@ -223,7 +240,13 @@ cp .env.example .env
 npm install
 npm run dev
 
-# 5. Frontend (new terminal)
+# 5. Notify Service (new terminal)
+cd services/notify
+cp .env.example .env
+npm install
+npm run dev
+
+# 6. Frontend (new terminal)
 cd frontend
 npm install
 npm run dev
@@ -244,6 +267,7 @@ docker-compose build
 docker build -t jayadevarun2003/carenest-auth ./services/auth
 docker build -t jayadevarun2003/carenest-appointment ./services/appointment
 docker build -t jayadevarun2003/carenest-pharmacy ./services/pharmacy
+docker build -t jayadevarun2003/carenest-notify ./services/notify
 docker build -t jayadevarun2003/carenest-frontend ./frontend
 ```
 
@@ -253,6 +277,7 @@ docker build -t jayadevarun2003/carenest-frontend ./frontend
 docker push jayadevarun2003/carenest-auth
 docker push jayadevarun2003/carenest-appointment
 docker push jayadevarun2003/carenest-pharmacy
+docker push jayadevarun2003/carenest-notify
 docker push jayadevarun2003/carenest-frontend
 ```
 
@@ -276,6 +301,12 @@ docker run -d -p 3003:3003 \
   -e MONGO_URI=mongodb://host.docker.internal:27017/carenest_pharmacy \
   -e JWT_SECRET=your_secret \
   jayadevarun2003/carenest-pharmacy
+
+# Notify service
+docker run -d -p 3004:3004 \
+  -e MONGO_URI=mongodb://host.docker.internal:27017/carenest_notifications \
+  -e JWT_SECRET=your_secret \
+  jayadevarun2003/carenest-notify
 ```
 
 ### Image Naming Convention
@@ -285,6 +316,7 @@ docker run -d -p 3003:3003 \
 | Auth | `jayadevarun2003/carenest-auth` |
 | Appointment | `jayadevarun2003/carenest-appointment` |
 | Pharmacy | `jayadevarun2003/carenest-pharmacy` |
+| Notify | `jayadevarun2003/carenest-notify` |
 | Frontend | `jayadevarun2003/carenest-frontend` |
 
 ### Dockerfile Best Practices Used
@@ -326,6 +358,14 @@ docker run -d -p 3003:3003 \
 | `MONGO_URI` | MongoDB connection string | `mongodb://mongo:27017/carenest_pharmacy` |
 | `JWT_SECRET` | Shared JWT secret | — |
 
+### Notify Service (`services/notify/.env.example`)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Service port | `3004` |
+| `MONGO_URI` | MongoDB connection string | `mongodb://mongo:27017/carenest_notifications` |
+| `JWT_SECRET` | Shared JWT secret | — |
+
 > ⚠️ **Important**: All services must share the same `JWT_SECRET` for token validation across services.
 
 ---
@@ -362,6 +402,18 @@ docker run -d -p 3003:3003 \
 | `PUT` | `/api/prescriptions/:id/status` | ✅ | Any | Update status |
 | `GET` | `/health` | ❌ | — | Health check |
 
+### Notify Service (Port 3004)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/notifications` | ✅ | Create notification(s) — accepts single object or array |
+| `GET` | `/api/notifications` | ✅ | List current user's notifications + unread count |
+| `PUT` | `/api/notifications/read-all` | ✅ | Mark all notifications as read |
+| `PUT` | `/api/notifications/:id/read` | ✅ | Mark single notification as read |
+| `GET` | `/health` | ❌ | Health check |
+
+> 💡 **How notifications work**: When a patient books an appointment or a doctor creates a prescription, the frontend sends a fire-and-forget notification request. The notify service stores it, and the sidebar bell icon polls for new notifications every 30 seconds. If the notify service is unavailable, the app continues working normally.
+
 ---
 
 ## 🔐 Security Practices
@@ -385,7 +437,8 @@ docker run -d -p 3003:3003 \
 - [ ] **CI/CD Pipeline** — GitHub Actions for automated build, test, and deploy
 - [ ] **API Gateway** — Centralized routing, rate limiting, and auth
 - [ ] **Observability** — Prometheus metrics, Grafana dashboards, structured logging
-- [ ] **Notifications** — Email/SMS for appointment reminders
+- [x] **In-App Notifications** — Real-time notification bell for appointments and prescriptions
+- [ ] **Email/SMS Notifications** — External delivery for appointment reminders
 - [ ] **File Uploads** — Medical reports and imaging attachments
 - [ ] **Search & Filters** — Advanced appointment and prescription search
 - [ ] **Testing** — Unit tests, integration tests, and E2E tests
