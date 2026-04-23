@@ -431,17 +431,239 @@ docker run -d -p 3004:3004 \
 
 ---
 
+## ☸️ Kubernetes Deployment (Helm)
+
+### Architecture
+
+```
+User → HAProxy (LoadBalancer) → Envoy Gateway (kGateway) → K8s Services → Pods
+                                                              ↓
+                                                     MongoDB StatefulSet
+                                                     Redis Deployment
+```
+
+**Traffic flow:**
+1. User sends request to **HAProxy** (external LoadBalancer on port 80)
+2. HAProxy forwards to **Envoy Gateway** (internal kGateway)
+3. Envoy uses **HTTPRoute** rules for path-based routing:
+   - `/api/auth/*` → auth-service:3001
+   - `/api/appointments/*` → appointment-service:3002
+   - `/api/prescriptions/*` → pharmacy-service:3003
+   - `/api/notifications/*` → notify-service:3004
+   - `/*` → frontend-service:80
+4. All backend services are **ClusterIP** (internal only)
+
+---
+
+### Helm Chart Structure
+
+```
+helm/
+└── carenest/
+    ├── Chart.yaml                       # Chart metadata
+    ├── values.yaml                      # All configurable values
+    └── templates/
+        ├── namespace.yaml               # carenest-dev / carenest-prod
+        ├── configmap.yaml               # Non-sensitive config
+        ├── secrets.yaml                 # JWT_SECRET, MongoDB URIs
+        ├── mongo-statefulset.yaml       # MongoDB with PVC
+        ├── mongo-service.yaml           # Headless service
+        ├── redis-deployment.yaml        # Redis cache
+        ├── redis-service.yaml           # Redis ClusterIP
+        ├── auth-deployment.yaml         # Auth + init container
+        ├── auth-service.yaml            # ClusterIP :3001
+        ├── appointment-deployment.yaml  # Appointment + init container
+        ├── appointment-service.yaml     # ClusterIP :3002
+        ├── pharmacy-deployment.yaml     # Pharmacy + init container
+        ├── pharmacy-service.yaml        # ClusterIP :3003
+        ├── notify-deployment.yaml       # Notify + init container
+        ├── notify-service.yaml          # ClusterIP :3004
+        ├── frontend-deployment.yaml     # React/nginx
+        ├── frontend-service.yaml        # ClusterIP :80
+        ├── hpa-frontend.yaml           # HPA (CPU-based, frontend only)
+        ├── envoy-gateway.yaml          # Envoy Gateway resource
+        ├── httproute.yaml              # Path-based routing rules
+        ├── haproxy-deployment.yaml     # HAProxy + ConfigMap + Service
+        ├── rbac.yaml                   # ServiceAccount + Role + Binding
+        ├── networkpolicy.yaml          # Traffic restriction policies
+        ├── pdb.yaml                    # Pod Disruption Budgets
+        └── pvc.yaml                    # Persistent Volume Claim
+```
+
+---
+
+### Prerequisites
+
+- Kubernetes cluster (kubeadm, EKS, etc.)
+- `kubectl` configured
+- `helm` 3.x installed
+- [Gateway API CRDs](https://gateway-api.sigs.k8s.io/) installed
+- [Envoy Gateway](https://gateway.envoyproxy.io/) installed
+
+```bash
+# Install Gateway API CRDs
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
+
+# Install Envoy Gateway
+helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm --version v1.2.0 -n envoy-gateway-system --create-namespace
+```
+
+---
+
+### Deploy with Helm
+
+```bash
+# Development environment
+helm install carenest ./helm/carenest \
+  --set namespace=carenest-dev \
+  --set environment=dev
+
+# Production environment (override values)
+helm install carenest ./helm/carenest \
+  --set namespace=carenest-prod \
+  --set environment=prod \
+  --set secrets.jwtSecret=$(echo -n "YOUR_PROD_SECRET" | base64) \
+  --set replicas.auth=3 \
+  --set replicas.appointment=3 \
+  --set replicas.frontend=3
+
+# Upgrade after changes
+helm upgrade carenest ./helm/carenest
+
+# Uninstall
+helm uninstall carenest
+```
+
+---
+
+### Verify Deployment
+
+```bash
+# Check all pods
+kubectl get pods -n carenest-dev
+
+# Check services
+kubectl get svc -n carenest-dev
+
+# Check HPA
+kubectl get hpa -n carenest-dev
+
+# Check PDB
+kubectl get pdb -n carenest-dev
+
+# Check gateway and routes
+kubectl get gateway,httproute -n carenest-dev
+
+# View logs
+kubectl logs -f deployment/auth -n carenest-dev
+kubectl logs -f deployment/notify -n carenest-dev
+
+# Access via HAProxy LoadBalancer
+kubectl get svc haproxy-service -n carenest-dev
+```
+
+---
+
+### Key Features
+
+| Feature | Implementation |
+|---------|---------------|
+| **Rolling Updates** | maxUnavailable: 1, maxSurge: 1 for all deployments |
+| **Health Probes** | readinessProbe + livenessProbe on `/health` |
+| **Init Containers** | All backends wait for MongoDB before starting |
+| **HPA** | Frontend auto-scales 2→10 pods at 70% CPU |
+| **PDB** | minAvailable: 1 for every service |
+| **RBAC** | Minimal ServiceAccount with read-only access |
+| **Network Policies** | Default deny + explicit allow rules |
+| **Graceful Shutdown** | terminationGracePeriodSeconds: 30 |
+| **ConfigMap** | Ports, service URLs, JWT expiry |
+| **Secrets** | JWT_SECRET, MongoDB URIs (base64) |
+| **Persistent Storage** | MongoDB StatefulSet with dynamic PVC |
+| **Caching** | Redis ClusterIP for optional caching |
+
+---
+
+### Storage (MongoDB + PVC)
+
+MongoDB runs as a **StatefulSet** with `volumeClaimTemplates` for persistent storage:
+- Data survives pod restarts and rescheduling
+- Default storage size: `5Gi` (configurable via `values.yaml`)
+- Dynamic provisioning uses the cluster's default StorageClass
+
+---
+
+### Scaling (HPA)
+
+Only the **frontend** has HPA enabled:
+- **Min replicas**: 2
+- **Max replicas**: 10
+- **Target CPU**: 70%
+- Requires `metrics-server` in the cluster
+
+```bash
+# Install metrics-server if needed
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+```
+
+---
+
+### Notify Service Flow (Kubernetes)
+
+```
+Patient books appointment
+  → appointment-service Pod creates record in MongoDB
+  → appointment-service calls http://notify-service:3004/api/notifications
+    (non-blocking, forwards JWT, fire-and-forget)
+  → notify-service extracts userId from JWT, stores in MongoDB
+  → Returns success to frontend
+  → Frontend shows toast popup
+  → Bell icon polls /api/notifications every 30s
+```
+
+Internal DNS used: `http://notify-service:3004` (via ConfigMap `NOTIFY_SERVICE_URL`)
+
+---
+
+### Multi-Environment Support
+
+Switch environments by overriding `namespace` and `environment`:
+
+```bash
+# Dev
+helm install carenest-dev ./helm/carenest --set namespace=carenest-dev --set environment=dev
+
+# Prod
+helm install carenest-prod ./helm/carenest --set namespace=carenest-prod --set environment=prod
+```
+
+---
+
 ## 🔮 Future Enhancements
 
-- [ ] **Kubernetes Deployment** — Helm charts, manifests, and HPA for auto-scaling
+- [x] **Kubernetes Deployment** — Helm charts with HPA, RBAC, PDB, NetworkPolicy
+- [x] **API Gateway** — Envoy Gateway with HTTPRoute path-based routing
+- [x] **In-App Notifications** — Real-time notification bell + toast popups
 - [ ] **CI/CD Pipeline** — GitHub Actions for automated build, test, and deploy
-- [ ] **API Gateway** — Centralized routing, rate limiting, and auth
 - [ ] **Observability** — Prometheus metrics, Grafana dashboards, structured logging
-- [x] **In-App Notifications** — Real-time notification bell for appointments and prescriptions
 - [ ] **Email/SMS Notifications** — External delivery for appointment reminders
 - [ ] **File Uploads** — Medical reports and imaging attachments
 - [ ] **Search & Filters** — Advanced appointment and prescription search
 - [ ] **Testing** — Unit tests, integration tests, and E2E tests
+
+---
+
+## 🔧 Troubleshooting
+
+| Issue | Solution |
+|-------|---------|
+| Pods stuck in `Init` | MongoDB not ready. Check: `kubectl logs <pod> -c wait-for-mongo -n carenest-dev` |
+| `CrashLoopBackOff` | Check logs: `kubectl logs <pod> -n carenest-dev` — likely missing env vars or DB connection |
+| HPA not scaling | Ensure `metrics-server` is installed: `kubectl top pods -n carenest-dev` |
+| Gateway not routing | Verify CRDs: `kubectl get gatewayclasses` and check Envoy Gateway is running |
+| NetworkPolicy blocking | Temporarily delete policies to debug: `kubectl delete netpol --all -n carenest-dev` |
+| PVC pending | Check StorageClass: `kubectl get sc` — ensure a default class exists |
+| Notifications not working | Check notify pod logs and verify `NOTIFY_SERVICE_URL` in ConfigMap |
+| HAProxy 503 | Envoy Gateway service not reachable. Check: `kubectl get svc -n carenest-dev` |
 
 ---
 

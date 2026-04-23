@@ -1,0 +1,133 @@
+# ──────────────────────────────────────────────────────
+# CareNest Helm Values
+# ──────────────────────────────────────────────────────
+
+# Global
+namespace: carenest-dev
+environment: dev
+
+# ── Docker Images ─────────────────────────────────────
+images:
+  auth: jayadevarun2003/carenest-auth
+  appointment: jayadevarun2003/carenest-appointment
+  pharmacy: jayadevarun2003/carenest-pharmacy
+  notify: jayadevarun2003/carenest-notify
+  frontend: jayadevarun2003/carenest-frontend
+  mongo: mongo:7
+  redis: redis:7-alpine
+  haproxy: haproxytech/haproxy-alpine:2.9
+  pullPolicy: Always
+
+# ── Replicas ──────────────────────────────────────────
+replicas:
+  auth: 2
+  appointment: 2
+  pharmacy: 2
+  notify: 2
+  frontend: 2
+  redis: 1
+
+# ── Ports ─────────────────────────────────────────────
+ports:
+  auth: 3001
+  appointment: 3002
+  pharmacy: 3003
+  notify: 3004
+  frontend: 80
+  mongo: 27017
+  redis: 6379
+  haproxy: 80
+
+# ── Resources ─────────────────────────────────────────
+resources:
+  auth:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  appointment:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  pharmacy:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  notify:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  frontend:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  mongo:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  redis:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  haproxy:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ── MongoDB ───────────────────────────────────────────
+mongo:
+  storageSize: 5Gi
+  storageClass: ""  # leave empty for default
+
+# ── Config (non-sensitive) ────────────────────────────
+config:
+  jwtExpiresIn: "7d"
+  nodeEnv: "production"
+
+# ── Secrets (base64 encoded) ──────────────────────────
+secrets:
+  jwtSecret: "Y2FyZW5lc3RfcHJvZF9zZWNyZXRfY2hhbmdlX21l"  # carenest_prod_secret_change_me
+
+# ── HPA (Frontend only) ──────────────────────────────
+hpa:
+  frontend:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUPercent: 70
+
+# ── Health Probes ─────────────────────────────────────
+probes:
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# ── Graceful Shutdown ─────────────────────────────────
+terminationGracePeriodSeconds: 30
+
+# ── HAProxy ───────────────────────────────────────────
+haproxy:
+  serviceType: LoadBalancer
