@@ -2,50 +2,55 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: carenest-routes
-  namespace: carenest-dev
+  namespace: {{ .Values.namespace }}
 spec:
   parentRefs:
     - name: carenest-gateway
-      namespace: carenest-dev
+      namespace: {{ .Values.namespace }}
 
   rules:
 
+    # ── Auth Service (/api/auth/*) ────────────────────
     - matches:
         - path:
             type: PathPrefix
             value: /api/auth
       backendRefs:
         - name: auth-service
-          port: 3001
+          port: {{ .Values.ports.auth }}
 
+    # ── Appointment Service (/api/appointments/*) ─────
     - matches:
         - path:
             type: PathPrefix
             value: /api/appointments
       backendRefs:
         - name: appointment-service
-          port: 3002
+          port: {{ .Values.ports.appointment }}
 
+    # ── Pharmacy Service (/api/prescriptions/*) ───────
     - matches:
         - path:
             type: PathPrefix
             value: /api/prescriptions
       backendRefs:
         - name: pharmacy-service
-          port: 3003
+          port: {{ .Values.ports.pharmacy }}
 
+    # ── Notify Service (/api/notifications/*) ─────────
     - matches:
         - path:
             type: PathPrefix
             value: /api/notifications
       backendRefs:
         - name: notify-service
-          port: 3004
+          port: {{ .Values.ports.notify }}
 
+    # ── Frontend (catch-all /*) ───────────────────────
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
         - name: frontend-service
-          port: 80
+          port: {{ .Values.ports.frontend }}

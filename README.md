@@ -5,34 +5,71 @@
 ### Modern Healthcare Management Platform
 
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/u/jayadevarun2003)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-Ready-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
 [![Node.js](https://img.shields.io/badge/Node.js-20-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://reactjs.org/)
 [![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-*A microservices-based healthcare application for managing appointments, prescriptions, notifications, and patient-doctor interactions — fully Dockerized and production-ready.*
-
-[Features](#-features) · [Architecture](#-architecture) · [Quick Start](#-quick-start) · [API Docs](#-api-endpoints) · [Docker](#-docker-usage)
+*A microservices-based healthcare application — fully Dockerized, Helm-packaged, and production-ready on AWS EC2 with Kubernetes.*
 
 </div>
 
 ---
 
-## 📋 Project Overview
+## 📋 Overview
 
-**CareNest** is a modern, full-stack healthcare management platform designed to streamline interactions between patients and doctors. Built with a microservices architecture, it provides:
+**CareNest** is a full-stack healthcare management platform with:
 
-- **Patients**: Book appointments, view prescriptions, and manage their healthcare journey
-- **Doctors**: Manage schedules, confirm appointments, and create prescriptions
-- **Platform**: Secure JWT-based authentication with role-based access control (RBAC)
+- **Patients**: Book appointments, view prescriptions, manage healthcare journey
+- **Doctors**: Manage schedules, confirm appointments, create prescriptions
+- **Platform**: JWT auth with RBAC, real-time notifications, Redis caching
 
-### Problem It Solves
+---
 
-Traditional healthcare systems often rely on fragmented tools and manual processes. CareNest provides a unified, digital-first solution that:
+## 🏗️ Production Architecture (AWS EC2 + Kubernetes)
 
-- Eliminates scheduling conflicts with real-time appointment management
-- Digitizes prescription workflows for accuracy and accessibility
-- Ensures data security with industry-standard authentication
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                       INTERNET                                      │
+│                                                                     │
+│  User Browser ──► HAProxy EC2 (Public IP :80)                       │
+│                      │                                              │
+│                      │  haproxy.cfg:                                 │
+│                      │    server node1 <worker1>:30080               │
+│                      │    server node2 <worker2>:30080               │
+└──────────────────────┼──────────────────────────────────────────────┘
+                       │
+┌──────────────────────┼──────────────────────────────────────────────┐
+│                      ▼  KUBERNETES CLUSTER                          │
+│                                                                     │
+│  NodePort (30080) ──► Envoy Gateway Proxy Pods                      │
+│                              │                                      │
+│                       HTTPRoute Rules                               │
+│              ┌───────┬───────┼───────┬──────────┐                   │
+│              ▼       ▼       ▼       ▼          ▼                   │
+│           auth    appt    pharma  notify    frontend                │
+│          :3001   :3002    :3003   :3004       :80                   │
+│              │       │       │       │                              │
+│              └───────┴───────┴───────┘                              │
+│                          │                                          │
+│               MongoDB StatefulSet + Redis                           │
+│                                                                     │
+│                    (2 Worker Nodes on EC2)                           │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Traffic Flow
+
+1. User sends request to **HAProxy EC2** (public IP, port 80)
+2. HAProxy load-balances to Kubernetes **NodePort 30080** on worker nodes
+3. NodePort reaches **Envoy Gateway** proxy pods
+4. Envoy applies **HTTPRoute** path-based routing:
+   - `/api/auth/*` → auth-service:3001
+   - `/api/appointments/*` → appointment-service:3002
+   - `/api/prescriptions/*` → pharmacy-service:3003
+   - `/api/notifications/*` → notify-service:3004
+   - `/*` → frontend-service:80
+5. All backend services are **ClusterIP** (internal only)
 
 ---
 
@@ -41,40 +78,14 @@ Traditional healthcare systems often rely on fragmented tools and manual process
 | Feature | Description |
 |---------|-------------|
 | 🔐 **Authentication** | JWT-based auth with RBAC (Patient & Doctor roles) |
-| 📅 **Appointments** | Create, confirm, cancel, and complete appointments |
-| 💊 **Prescriptions** | Doctors create prescriptions; patients view and track them |
-| 🔔 **Notifications** | Real-time alerts for both patients and doctors on key actions |
-| 🎨 **Modern UI** | React + Tailwind CSS v4 with animations and responsive design |
-| 🐳 **Fully Dockerized** | Production-grade Dockerfiles with multi-stage builds |
-| 🏗️ **Microservices** | Independently deployable services with loose coupling |
-| ❤️ **Health Checks** | Every service exposes a `/health` endpoint |
-
----
-
-## 🏗️ Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Frontend (React)                          │
-│                     Port 3000 (nginx:80)                         │
-└───────┬──────────────┬──────────────┬──────────────┬─────────────┘
-        │              │              │              │
- ┌──────▼──────┐ ┌─────▼──────┐ ┌────▼───────┐ ┌────▼───────┐
- │ Auth Service│ │Appointment │ │  Pharmacy  │ │   Notify   │
- │  Port 3001  │ │  Port 3002 │ │  Port 3003 │ │  Port 3004 │
- └──────┬──────┘ └─────┬──────┘ └────┬───────┘ └────┬───────┘
-        │              │              │              │
- ┌──────▼──────────────▼──────────────▼──────────────▼───────┐
- │                    MongoDB (Port 27017)                    │
- │  auth_db  │  appointments_db  │  pharma_db  │  notify_db  │
- └───────────────────────────────────────────────────────────┘
-```
-
-### Service Communication
-
-- **Frontend → Backend**: REST API calls via nginx reverse proxy
-- **Inter-service Auth**: Shared JWT secret for token validation
-- **Database**: Each service uses a separate MongoDB database for isolation
+| 📅 **Appointments** | Create, confirm, cancel, complete appointments |
+| 💊 **Prescriptions** | Doctors create; patients view and track |
+| 🔔 **Notifications** | Real-time alerts for patients and doctors |
+| 🎨 **Modern UI** | React + Tailwind CSS v4 with animations |
+| 🐳 **Dockerized** | Multi-stage production Dockerfiles |
+| ☸️ **Kubernetes** | Full Helm chart with HPA, RBAC, PDB, NetworkPolicy |
+| 🌐 **Gateway API** | Envoy Gateway with HTTPRoute routing |
+| ❤️ **Health Checks** | Every service exposes `/health` |
 
 ---
 
@@ -82,11 +93,118 @@ Traditional healthcare systems often rely on fragmented tools and manual process
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | React 18, Vite 6, Tailwind CSS v4, React Router v6, Axios, Lucide Icons |
-| **Backend** | Node.js 20, Express 4, Mongoose 8, JWT, bcryptjs |
-| **Database** | MongoDB 7 |
-| **Containerization** | Docker (multi-stage builds), Docker Compose |
-| **Web Server** | nginx (frontend production serving + API proxy) |
+| **Frontend** | React 18, Vite 6, Tailwind CSS v4, Axios |
+| **Backend** | Node.js 20, Express 4, Mongoose 8, JWT |
+| **Database** | MongoDB 7 (StatefulSet), Redis 7 |
+| **Gateway** | Envoy Gateway (Gateway API) |
+| **Proxy** | HAProxy (external EC2) |
+| **Orchestration** | Kubernetes (kubeadm on EC2) |
+| **Packaging** | Helm 3, Docker |
+
+---
+
+## 🚀 Deployment Guide
+
+### Prerequisites
+
+- 2+ EC2 instances for Kubernetes worker nodes
+- 1 EC2 instance for HAProxy (public IP)
+- Kubernetes cluster initialized (kubeadm)
+- `kubectl`, `helm` 3.x installed
+- Docker images pushed to Docker Hub
+
+### Step 1: Install Gateway API CRDs + Envoy Gateway
+
+```bash
+# Gateway API CRDs
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
+
+# Envoy Gateway controller
+helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm \
+  --version v1.2.0 -n envoy-gateway-system --create-namespace
+
+# Verify GatewayClass exists
+kubectl get gatewayclasses
+# Expected: NAME=eg  CONTROLLER=gateway.envoyproxy.io/gatewayclass-controller
+```
+
+### Step 2: Create Namespace
+
+```bash
+kubectl create namespace carenest-dev
+```
+
+### Step 3: Configure AWS Security Groups
+
+See [docs/aws-security-groups.md](docs/aws-security-groups.md) for complete rules.
+
+**Critical rule**: Worker nodes must allow ALL traffic from each other:
+```bash
+aws ec2 authorize-security-group-ingress \
+  --group-id <WORKER_SG_ID> --protocol all --source-group <WORKER_SG_ID>
+```
+
+### Step 4: Deploy with Helm
+
+```bash
+# Update values.yaml with your worker node IPs first
+# Then deploy:
+helm install carenest ./helm/carenest \
+  --set namespace=carenest-dev \
+  --set environment=dev
+
+# Verify
+kubectl get pods -n carenest-dev
+kubectl get gateway,httproute -n carenest-dev
+kubectl get svc -n carenest-dev
+```
+
+### Step 5: Find the Gateway NodePort
+
+```bash
+# The Envoy Gateway auto-creates a service — find its NodePort
+kubectl get svc -n carenest-dev | grep envoy
+# Look for the NodePort mapping (should be 30080)
+```
+
+### Step 6: Configure HAProxy EC2
+
+```bash
+# Copy the HAProxy config to your EC2
+scp helm/carenest/haproxy-ec2.cfg ec2-user@<HAPROXY_IP>:/tmp/
+
+# SSH into HAProxy EC2
+ssh ec2-user@<HAPROXY_IP>
+
+# Install HAProxy
+sudo yum install haproxy -y   # Amazon Linux
+# OR
+sudo apt install haproxy -y   # Ubuntu
+
+# Deploy config (edit IPs first!)
+sudo cp /tmp/haproxy-ec2.cfg /etc/haproxy/haproxy.cfg
+sudo nano /etc/haproxy/haproxy.cfg
+# Replace WORKER_NODE_1_IP and WORKER_NODE_2_IP
+
+# Start HAProxy
+sudo systemctl enable haproxy
+sudo systemctl restart haproxy
+sudo systemctl status haproxy
+```
+
+### Step 7: Verify End-to-End
+
+```bash
+# From HAProxy EC2
+curl http://localhost/api/auth/health
+# Expected: {"status":"ok","service":"auth",...}
+
+curl http://localhost/
+# Expected: HTML (React frontend)
+
+# From your browser
+# Navigate to http://<HAPROXY_PUBLIC_IP>/
+```
 
 ---
 
@@ -94,561 +212,73 @@ Traditional healthcare systems often rely on fragmented tools and manual process
 
 ```
 CareNest/
-├── frontend/                          # React Frontend
+├── frontend/                  # React Frontend (Vite + nginx)
 │   ├── src/
-│   │   ├── components/                # Reusable UI components
-│   │   │   ├── AppointmentCard.jsx
-│   │   │   ├── DashboardLayout.jsx
-│   │   │   ├── LoadingSpinner.jsx
-│   │   │   ├── Navbar.jsx
-│   │   │   ├── PrescriptionCard.jsx
-│   │   │   ├── ProtectedRoute.jsx
-│   │   │   ├── Sidebar.jsx
-│   │   │   ├── StatsCard.jsx
-│   │   │   ├── NotificationPanel.jsx
-│   │   │   └── StatusBadge.jsx
-│   │   ├── contexts/
-│   │   │   └── AuthContext.jsx        # Auth state management
-│   │   ├── pages/
-│   │   │   ├── Appointments.jsx
-│   │   │   ├── Dashboard.jsx
-│   │   │   ├── Landing.jsx
-│   │   │   ├── Login.jsx
-│   │   │   ├── Prescriptions.jsx
-│   │   │   └── Register.jsx
-│   │   ├── services/
-│   │   │   └── api.js                 # Axios instance
-│   │   ├── App.jsx
-│   │   ├── index.css
-│   │   └── main.jsx
-│   ├── nginx.conf
-│   ├── Dockerfile
-│   ├── .dockerignore
-│   └── package.json
-│
+│   ├── nginx.conf             # API proxy + SPA fallback
+│   └── Dockerfile
 ├── services/
-│   ├── auth/                          # Authentication Service
-│   │   ├── src/
-│   │   │   ├── config/db.js
-│   │   │   ├── controllers/authController.js
-│   │   │   ├── middleware/auth.js
-│   │   │   ├── models/User.js
-│   │   │   ├── routes/authRoutes.js
-│   │   │   ├── services/authService.js
-│   │   │   └── index.js
-│   │   ├── Dockerfile
-│   │   ├── .dockerignore
-│   │   ├── .env.example
-│   │   └── package.json
-│   │
-│   ├── appointment/                   # Appointment Service
-│   │   ├── src/
-│   │   │   ├── config/db.js
-│   │   │   ├── controllers/appointmentController.js
-│   │   │   ├── middleware/auth.js
-│   │   │   ├── models/Appointment.js
-│   │   │   ├── routes/appointmentRoutes.js
-│   │   │   ├── services/appointmentService.js
-│   │   │   └── index.js
-│   │   ├── Dockerfile
-│   │   ├── .dockerignore
-│   │   ├── .env.example
-│   │   └── package.json
-│   │
-│   ├── pharmacy/                      # Pharmacy Service
-│   │   ├── src/
-│   │   │   ├── config/db.js
-│   │   │   ├── controllers/pharmacyController.js
-│   │   │   ├── middleware/auth.js
-│   │   │   ├── models/Prescription.js
-│   │   │   ├── routes/pharmacyRoutes.js
-│   │   │   ├── services/pharmacyService.js
-│   │   │   └── index.js
-│   │   ├── Dockerfile
-│   │   ├── .dockerignore
-│   │   ├── .env.example
-│   │   └── package.json
-│   │
-│   └── notify/                        # Notification Service
-│       ├── src/
-│       │   ├── config/db.js
-│       │   ├── controllers/notifyController.js
-│       │   ├── middleware/auth.js
-│       │   ├── models/Notification.js
-│       │   ├── routes/notifyRoutes.js
-│       │   ├── services/notifyService.js
-│       │   └── index.js
-│       ├── Dockerfile
-│       ├── .dockerignore
-│       ├── .env.example
-│       └── package.json
-│
-├── docker-compose.yml
-├── .gitignore
+│   ├── auth/                  # Auth Service (JWT, RBAC)
+│   ├── appointment/           # Appointment Service
+│   ├── pharmacy/              # Pharmacy/Prescription Service
+│   └── notify/                # Notification Service
+├── helm/
+│   └── carenest/
+│       ├── Chart.yaml
+│       ├── values.yaml        # All configurable values
+│       ├── haproxy-ec2.cfg    # External HAProxy config
+│       └── templates/
+│           ├── envoy-gateway.yaml       # Gateway resource
+│           ├── envoy-proxy-config.yaml  # EnvoyProxy NodePort config
+│           ├── httproute.yaml           # Path-based routing
+│           ├── haproxy-deployment.yaml  # In-cluster HAProxy (optional)
+│           ├── networkpolicy.yaml       # Firewall rules
+│           ├── *-deployment.yaml        # Service deployments
+│           ├── *-service.yaml           # ClusterIP services
+│           ├── mongo-statefulset.yaml   # MongoDB with PVC
+│           ├── rbac.yaml                # ServiceAccount + Role
+│           ├── pdb.yaml                 # Pod Disruption Budgets
+│           └── hpa-frontend.yaml        # Frontend autoscaler
+├── docs/
+│   └── aws-security-groups.md # AWS networking guide
+├── docker-compose.yml         # Local development
 └── README.md
 ```
 
 ---
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/) & Docker Compose
-- [Node.js 20+](https://nodejs.org/) (for local development)
-- [Git](https://git-scm.com/)
-
-### Option 1: Docker Compose (Recommended)
-
-```bash
-# Clone the repository
-git clone https://github.com/JayadevArun/CareNest.git
-cd CareNest
-
-# Start all services
-docker-compose up --build
-
-# Access the application
-# Frontend:    http://localhost:3000
-# Auth API:    http://localhost:3001
-# Appt API:    http://localhost:3002
-# Pharma API:  http://localhost:3003
-# Notify API:  http://localhost:3004
-```
-
-### Option 2: Run Services Locally
-
-```bash
-# 1. Start MongoDB (required)
-docker run -d -p 27017:27017 --name mongo mongo:7
-
-# 2. Auth Service
-cd services/auth
-cp .env.example .env
-npm install
-npm run dev
-
-# 3. Appointment Service (new terminal)
-cd services/appointment
-cp .env.example .env
-npm install
-npm run dev
-
-# 4. Pharmacy Service (new terminal)
-cd services/pharmacy
-cp .env.example .env
-npm install
-npm run dev
-
-# 5. Notify Service (new terminal)
-cd services/notify
-cp .env.example .env
-npm install
-npm run dev
-
-# 6. Frontend (new terminal)
-cd frontend
-npm install
-npm run dev
-# Open http://localhost:5173
-```
-
----
-
-## 🐳 Docker Usage
-
-### Build Images
-
-```bash
-# Build all images at once
-docker-compose build
-
-# Build individual images
-docker build -t jayadevarun2003/carenest-auth ./services/auth
-docker build -t jayadevarun2003/carenest-appointment ./services/appointment
-docker build -t jayadevarun2003/carenest-pharmacy ./services/pharmacy
-docker build -t jayadevarun2003/carenest-notify ./services/notify
-docker build -t jayadevarun2003/carenest-frontend ./frontend
-```
-
-### Push to Docker Hub
-
-```bash
-docker push jayadevarun2003/carenest-auth
-docker push jayadevarun2003/carenest-appointment
-docker push jayadevarun2003/carenest-pharmacy
-docker push jayadevarun2003/carenest-notify
-docker push jayadevarun2003/carenest-frontend
-```
-
-### Run Individual Containers
-
-```bash
-# Auth service
-docker run -d -p 3001:3001 \
-  -e MONGO_URI=mongodb://host.docker.internal:27017/carenest_auth \
-  -e JWT_SECRET=your_secret \
-  jayadevarun2003/carenest-auth
-
-# Appointment service
-docker run -d -p 3002:3002 \
-  -e MONGO_URI=mongodb://host.docker.internal:27017/carenest_appointments \
-  -e JWT_SECRET=your_secret \
-  jayadevarun2003/carenest-appointment
-
-# Pharmacy service
-docker run -d -p 3003:3003 \
-  -e MONGO_URI=mongodb://host.docker.internal:27017/carenest_pharmacy \
-  -e JWT_SECRET=your_secret \
-  jayadevarun2003/carenest-pharmacy
-
-# Notify service
-docker run -d -p 3004:3004 \
-  -e MONGO_URI=mongodb://host.docker.internal:27017/carenest_notifications \
-  -e JWT_SECRET=your_secret \
-  jayadevarun2003/carenest-notify
-```
-
-### Image Naming Convention
-
-| Service | Image Name |
-|---------|-----------|
-| Auth | `jayadevarun2003/carenest-auth` |
-| Appointment | `jayadevarun2003/carenest-appointment` |
-| Pharmacy | `jayadevarun2003/carenest-pharmacy` |
-| Notify | `jayadevarun2003/carenest-notify` |
-| Frontend | `jayadevarun2003/carenest-frontend` |
-
-### Dockerfile Best Practices Used
-
-- ✅ Multi-stage builds (especially React frontend)
-- ✅ Lightweight base images (`node:20-alpine`, `nginx:alpine`)
-- ✅ Non-root user execution (backend services)
-- ✅ Layer optimization (`COPY package*.json` before source)
-- ✅ `.dockerignore` for every service
-- ✅ Environment variables (no hardcoded values)
-- ✅ Proper port exposure
-
----
-
-## 🔧 Environment Variables
-
-### Auth Service (`services/auth/.env.example`)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Service port | `3001` |
-| `MONGO_URI` | MongoDB connection string | `mongodb://mongo:27017/carenest_auth` |
-| `JWT_SECRET` | Secret key for JWT signing | — |
-| `JWT_EXPIRES_IN` | Token expiration | `7d` |
-
-### Appointment Service (`services/appointment/.env.example`)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Service port | `3002` |
-| `MONGO_URI` | MongoDB connection string | `mongodb://mongo:27017/carenest_appointments` |
-| `JWT_SECRET` | Shared JWT secret | — |
-
-### Pharmacy Service (`services/pharmacy/.env.example`)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Service port | `3003` |
-| `MONGO_URI` | MongoDB connection string | `mongodb://mongo:27017/carenest_pharmacy` |
-| `JWT_SECRET` | Shared JWT secret | — |
-
-### Notify Service (`services/notify/.env.example`)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Service port | `3004` |
-| `MONGO_URI` | MongoDB connection string | `mongodb://mongo:27017/carenest_notifications` |
-| `JWT_SECRET` | Shared JWT secret | — |
-
-> ⚠️ **Important**: All services must share the same `JWT_SECRET` for token validation across services.
-
----
-
 ## 📡 API Endpoints
 
-### Auth Service (Port 3001)
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/auth/register` | ❌ | Register new user |
-| `POST` | `/api/auth/login` | ❌ | Login and get JWT |
-| `GET` | `/api/auth/profile` | ✅ | Get current user profile |
-| `GET` | `/api/auth/doctors` | ✅ | List all doctors |
-| `GET` | `/health` | ❌ | Health check |
-
-### Appointment Service (Port 3002)
-
-| Method | Endpoint | Auth | Role | Description |
-|--------|----------|------|------|-------------|
-| `POST` | `/api/appointments` | ✅ | Patient | Create appointment |
-| `GET` | `/api/appointments` | ✅ | Any | List user's appointments |
-| `GET` | `/api/appointments/:id` | ✅ | Any | Get appointment details |
-| `PUT` | `/api/appointments/:id` | ✅ | Any | Update appointment |
-| `GET` | `/health` | ❌ | — | Health check |
-
-### Pharmacy Service (Port 3003)
-
-| Method | Endpoint | Auth | Role | Description |
-|--------|----------|------|------|-------------|
-| `POST` | `/api/prescriptions` | ✅ | Doctor | Create prescription |
-| `GET` | `/api/prescriptions` | ✅ | Any | List prescriptions |
-| `GET` | `/api/prescriptions/:id` | ✅ | Any | Get prescription details |
-| `PUT` | `/api/prescriptions/:id/status` | ✅ | Any | Update status |
-| `GET` | `/health` | ❌ | — | Health check |
-
-### Notify Service (Port 3004)
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `POST` | `/api/notifications` | ✅ | Create notification(s) — accepts single object or array |
-| `GET` | `/api/notifications` | ✅ | List current user's notifications + unread count |
-| `PUT` | `/api/notifications/read-all` | ✅ | Mark all notifications as read |
-| `PUT` | `/api/notifications/:id/read` | ✅ | Mark single notification as read |
-| `GET` | `/health` | ❌ | Health check |
-
-> 💡 **How notifications work**: When a patient books an appointment or a doctor creates a prescription, the frontend sends a fire-and-forget notification request. The notify service stores it, and the sidebar bell icon polls for new notifications every 30 seconds. If the notify service is unavailable, the app continues working normally.
+| Service | Method | Endpoint | Auth | Description |
+|---------|--------|----------|------|-------------|
+| Auth | POST | `/api/auth/register` | ❌ | Register user |
+| Auth | POST | `/api/auth/login` | ❌ | Login (returns JWT) |
+| Auth | GET | `/api/auth/profile` | ✅ | Current user profile |
+| Auth | GET | `/api/auth/doctors` | ✅ | List all doctors |
+| Appointment | POST | `/api/appointments` | ✅ | Create appointment |
+| Appointment | GET | `/api/appointments` | ✅ | List appointments |
+| Appointment | PUT | `/api/appointments/:id` | ✅ | Update appointment |
+| Pharmacy | POST | `/api/prescriptions` | ✅ | Create prescription |
+| Pharmacy | GET | `/api/prescriptions` | ✅ | List prescriptions |
+| Notify | GET | `/api/notifications` | ✅ | List notifications |
+| Notify | PUT | `/api/notifications/read-all` | ✅ | Mark all read |
+| All | GET | `/health` | ❌ | Health check |
 
 ---
 
-## 🔐 Security Practices
-
-| Practice | Implementation |
-|----------|---------------|
-| **No hardcoded secrets** | All sensitive values use environment variables |
-| **JWT Authentication** | Stateless token-based auth with configurable expiration |
-| **RBAC** | Role-based middleware (`patient`, `doctor`) |
-| **Password Hashing** | bcrypt with 12 salt rounds |
-| **Input Validation** | express-validator on all endpoints |
-| **Non-root containers** | Backend Dockerfiles use `appuser` |
-| **CORS** | Enabled with configurable origins |
-| **`.env.example` files** | Template files with no real credentials |
-
----
-
-## ☸️ Kubernetes Deployment (Helm)
-
-### Architecture
-
-```
-User → HAProxy (LoadBalancer) → Envoy Gateway (kGateway) → K8s Services → Pods
-                                                              ↓
-                                                     MongoDB StatefulSet
-                                                     Redis Deployment
-```
-
-**Traffic flow:**
-1. User sends request to **HAProxy** (external LoadBalancer on port 80)
-2. HAProxy forwards to **Envoy Gateway** (internal kGateway)
-3. Envoy uses **HTTPRoute** rules for path-based routing:
-   - `/api/auth/*` → auth-service:3001
-   - `/api/appointments/*` → appointment-service:3002
-   - `/api/prescriptions/*` → pharmacy-service:3003
-   - `/api/notifications/*` → notify-service:3004
-   - `/*` → frontend-service:80
-4. All backend services are **ClusterIP** (internal only)
-
----
-
-### Helm Chart Structure
-
-```
-helm/
-└── carenest/
-    ├── Chart.yaml                       # Chart metadata
-    ├── values.yaml                      # All configurable values
-    └── templates/
-        ├── namespace.yaml               # carenest-dev / carenest-prod
-        ├── configmap.yaml               # Non-sensitive config
-        ├── secrets.yaml                 # JWT_SECRET, MongoDB URIs
-        ├── mongo-statefulset.yaml       # MongoDB with PVC
-        ├── mongo-service.yaml           # Headless service
-        ├── redis-deployment.yaml        # Redis cache
-        ├── redis-service.yaml           # Redis ClusterIP
-        ├── auth-deployment.yaml         # Auth + init container
-        ├── auth-service.yaml            # ClusterIP :3001
-        ├── appointment-deployment.yaml  # Appointment + init container
-        ├── appointment-service.yaml     # ClusterIP :3002
-        ├── pharmacy-deployment.yaml     # Pharmacy + init container
-        ├── pharmacy-service.yaml        # ClusterIP :3003
-        ├── notify-deployment.yaml       # Notify + init container
-        ├── notify-service.yaml          # ClusterIP :3004
-        ├── frontend-deployment.yaml     # React/nginx
-        ├── frontend-service.yaml        # ClusterIP :80
-        ├── hpa-frontend.yaml           # HPA (CPU-based, frontend only)
-        ├── envoy-gateway.yaml          # Envoy Gateway resource
-        ├── httproute.yaml              # Path-based routing rules
-        ├── haproxy-deployment.yaml     # HAProxy + ConfigMap + Service
-        ├── rbac.yaml                   # ServiceAccount + Role + Binding
-        ├── networkpolicy.yaml          # Traffic restriction policies
-        ├── pdb.yaml                    # Pod Disruption Budgets
-        └── pvc.yaml                    # Persistent Volume Claim
-```
-
----
-
-### Prerequisites
-
-- Kubernetes cluster (kubeadm, EKS, etc.)
-- `kubectl` configured
-- `helm` 3.x installed
-- [Gateway API CRDs](https://gateway-api.sigs.k8s.io/) installed
-- [Envoy Gateway](https://gateway.envoyproxy.io/) installed
-
-```bash
-# Install Gateway API CRDs
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.0/standard-install.yaml
-
-# Install Envoy Gateway
-helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm --version v1.2.0 -n envoy-gateway-system --create-namespace
-```
-
----
-
-### Deploy with Helm
-
-```bash
-# Development environment
-helm install carenest ./helm/carenest \
-  --set namespace=carenest-dev \
-  --set environment=dev
-
-# Production environment (override values)
-helm install carenest ./helm/carenest \
-  --set namespace=carenest-prod \
-  --set environment=prod \
-  --set secrets.jwtSecret=$(echo -n "YOUR_PROD_SECRET" | base64) \
-  --set replicas.auth=3 \
-  --set replicas.appointment=3 \
-  --set replicas.frontend=3
-
-# Upgrade after changes
-helm upgrade carenest ./helm/carenest
-
-# Uninstall
-helm uninstall carenest
-```
-
----
-
-### Verify Deployment
-
-```bash
-# Check all pods
-kubectl get pods -n carenest-dev
-
-# Check services
-kubectl get svc -n carenest-dev
-
-# Check HPA
-kubectl get hpa -n carenest-dev
-
-# Check PDB
-kubectl get pdb -n carenest-dev
-
-# Check gateway and routes
-kubectl get gateway,httproute -n carenest-dev
-
-# View logs
-kubectl logs -f deployment/auth -n carenest-dev
-kubectl logs -f deployment/notify -n carenest-dev
-
-# Access via HAProxy LoadBalancer
-kubectl get svc haproxy-service -n carenest-dev
-```
-
----
-
-### Key Features
+## ☸️ Kubernetes Features
 
 | Feature | Implementation |
 |---------|---------------|
-| **Rolling Updates** | maxUnavailable: 1, maxSurge: 1 for all deployments |
+| **Rolling Updates** | maxUnavailable: 1, maxSurge: 1 |
 | **Health Probes** | readinessProbe + livenessProbe on `/health` |
-| **Init Containers** | All backends wait for MongoDB before starting |
-| **HPA** | Frontend auto-scales 2→10 pods at 70% CPU |
+| **Init Containers** | Wait for MongoDB before starting |
+| **HPA** | Frontend: 2→10 pods at 70% CPU |
 | **PDB** | minAvailable: 1 for every service |
-| **RBAC** | Minimal ServiceAccount with read-only access |
-| **Network Policies** | Default deny + explicit allow rules |
-| **Graceful Shutdown** | terminationGracePeriodSeconds: 30 |
-| **ConfigMap** | Ports, service URLs, JWT expiry |
-| **Secrets** | JWT_SECRET, MongoDB URIs (base64) |
+| **RBAC** | Minimal read-only ServiceAccount |
+| **Network Policies** | Default deny + explicit allows (incl. Envoy Gateway) |
+| **Gateway API** | Envoy Gateway with HTTPRoute |
 | **Persistent Storage** | MongoDB StatefulSet with dynamic PVC |
-| **Caching** | Redis ClusterIP for optional caching |
-
----
-
-### Storage (MongoDB + PVC)
-
-MongoDB runs as a **StatefulSet** with `volumeClaimTemplates` for persistent storage:
-- Data survives pod restarts and rescheduling
-- Default storage size: `5Gi` (configurable via `values.yaml`)
-- Dynamic provisioning uses the cluster's default StorageClass
-
----
-
-### Scaling (HPA)
-
-Only the **frontend** has HPA enabled:
-- **Min replicas**: 2
-- **Max replicas**: 10
-- **Target CPU**: 70%
-- Requires `metrics-server` in the cluster
-
-```bash
-# Install metrics-server if needed
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-```
-
----
-
-### Notify Service Flow (Kubernetes)
-
-```
-Patient books appointment
-  → appointment-service Pod creates record in MongoDB
-  → appointment-service calls http://notify-service:3004/api/notifications
-    (non-blocking, forwards JWT, fire-and-forget)
-  → notify-service extracts userId from JWT, stores in MongoDB
-  → Returns success to frontend
-  → Frontend shows toast popup
-  → Bell icon polls /api/notifications every 30s
-```
-
-Internal DNS used: `http://notify-service:3004` (via ConfigMap `NOTIFY_SERVICE_URL`)
-
----
-
-### Multi-Environment Support
-
-Switch environments by overriding `namespace` and `environment`:
-
-```bash
-# Dev
-helm install carenest-dev ./helm/carenest --set namespace=carenest-dev --set environment=dev
-
-# Prod
-helm install carenest-prod ./helm/carenest --set namespace=carenest-prod --set environment=prod
-```
-
----
-
-## 🔮 Future Enhancements
-
-- [x] **Kubernetes Deployment** — Helm charts with HPA, RBAC, PDB, NetworkPolicy
-- [x] **API Gateway** — Envoy Gateway with HTTPRoute path-based routing
-- [x] **In-App Notifications** — Real-time notification bell + toast popups
-- [ ] **CI/CD Pipeline** — GitHub Actions for automated build, test, and deploy
-- [ ] **Observability** — Prometheus metrics, Grafana dashboards, structured logging
-- [ ] **Email/SMS Notifications** — External delivery for appointment reminders
-- [ ] **File Uploads** — Medical reports and imaging attachments
-- [ ] **Search & Filters** — Advanced appointment and prescription search
-- [ ] **Testing** — Unit tests, integration tests, and E2E tests
+| **Graceful Shutdown** | terminationGracePeriodSeconds: 30 |
 
 ---
 
@@ -656,22 +286,54 @@ helm install carenest-prod ./helm/carenest --set namespace=carenest-prod --set e
 
 | Issue | Solution |
 |-------|---------|
-| Pods stuck in `Init` | MongoDB not ready. Check: `kubectl logs <pod> -c wait-for-mongo -n carenest-dev` |
-| `CrashLoopBackOff` | Check logs: `kubectl logs <pod> -n carenest-dev` — likely missing env vars or DB connection |
-| HPA not scaling | Ensure `metrics-server` is installed: `kubectl top pods -n carenest-dev` |
-| Gateway not routing | Verify CRDs: `kubectl get gatewayclasses` and check Envoy Gateway is running |
-| NetworkPolicy blocking | Temporarily delete policies to debug: `kubectl delete netpol --all -n carenest-dev` |
-| PVC pending | Check StorageClass: `kubectl get sc` — ensure a default class exists |
-| Notifications not working | Check notify pod logs and verify `NOTIFY_SERVICE_URL` in ConfigMap |
-| HAProxy 503 | Envoy Gateway service not reachable. Check: `kubectl get svc -n carenest-dev` |
+| **503 upstream error** | Check NetworkPolicies allow Envoy → backends: `kubectl get netpol -n carenest-dev` |
+| **Gateway not Programmed** | Verify GatewayClass: `kubectl get gatewayclasses` — must be `eg` |
+| **Pods stuck in Init** | MongoDB not ready: `kubectl logs <pod> -c wait-for-mongo` |
+| **Cross-node pod failure** | AWS SG: worker nodes must allow all traffic from same SG |
+| **NodePort unreachable** | Check SG allows 30000-32767 from HAProxy SG |
+| **DNS resolution fails** | Check CoreDNS: `kubectl get pods -n kube-system -l k8s-app=kube-dns` |
+| **HAProxy 503** | Test NodePort directly: `curl http://<WORKER_IP>:30080/health` |
+| **HPA not scaling** | Install metrics-server: `kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml` |
+| **PVC pending** | Check StorageClass: `kubectl get sc` |
+
+### Debug Commands
+
+```bash
+# Full cluster status
+kubectl get all -n carenest-dev
+
+# Gateway status
+kubectl describe gateway carenest-gateway -n carenest-dev
+
+# HTTPRoute status
+kubectl describe httproute carenest-routes -n carenest-dev
+
+# Envoy proxy logs
+kubectl logs -l gateway.envoyproxy.io/owning-gateway-name=carenest-gateway -n carenest-dev
+
+# Test DNS from inside cluster
+kubectl run tmp --rm -i --tty --image=busybox -- nslookup auth-service.carenest-dev.svc.cluster.local
+
+# Test service connectivity
+kubectl run tmp --rm -i --tty --image=curlimages/curl -- curl -s http://auth-service.carenest-dev:3001/health
+```
+
+---
+
+## 🐳 Docker Compose (Local Dev)
+
+```bash
+git clone https://github.com/JayadevArun/CareNest.git
+cd CareNest
+docker-compose up --build
+# Frontend: http://localhost:3000
+```
 
 ---
 
 ## 📝 License
 
 This project is licensed under the MIT License.
-
----
 
 <div align="center">
 
