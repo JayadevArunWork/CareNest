@@ -280,6 +280,13 @@ spec:
         - protocol: TCP
           port: {{ .Values.ports.auth }}
     - to:
+        - podSelector:
+            matchLabels:
+              app: notify
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.notify }}
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system

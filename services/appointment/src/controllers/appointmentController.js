@@ -4,14 +4,19 @@ const appointmentService = require('../services/appointmentService');
 
 const NOTIFY_URL = process.env.NOTIFY_SERVICE_URL || 'http://notify:3004';
 
-// Non-blocking notify helper — never throws
+// Non-blocking notify helper — logs errors for debugging
 const sendNotification = (data, authHeader) => {
   axios
     .post(`${NOTIFY_URL}/api/notifications`, data, {
       headers: { Authorization: authHeader },
       timeout: 3000,
     })
-    .catch(() => {}); // silently ignore
+    .then(() => {
+      console.log(`[Appointment] Notification sent successfully: ${data.title} for userId=${data.userId}`);
+    })
+    .catch((err) => {
+      console.error(`[Appointment] Failed to send notification: ${err.message}`);
+    });
 };
 
 const createAppointment = async (req, res) => {
@@ -28,8 +33,10 @@ const createAppointment = async (req, res) => {
     const appointment = await appointmentService.create(data);
 
     // Non-blocking notification to notify service
+    // userId = patient (the logged-in user who booked the appointment)
     sendNotification(
       {
+        userId: req.user.id,
         title: 'Appointment Booked',
         message: `Appointment with Dr. ${req.body.doctorName} on ${req.body.date} at ${req.body.time}`,
         type: 'appointment',

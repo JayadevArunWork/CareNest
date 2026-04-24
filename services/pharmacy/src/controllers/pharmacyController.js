@@ -4,14 +4,19 @@ const pharmacyService = require('../services/pharmacyService');
 
 const NOTIFY_URL = process.env.NOTIFY_SERVICE_URL || 'http://notify:3004';
 
-// Non-blocking notify helper — never throws
+// Non-blocking notify helper — logs errors for debugging
 const sendNotification = (data, authHeader) => {
   axios
     .post(`${NOTIFY_URL}/api/notifications`, data, {
       headers: { Authorization: authHeader },
       timeout: 3000,
     })
-    .catch(() => {}); // silently ignore
+    .then(() => {
+      console.log(`[Pharmacy] Notification sent successfully: ${data.title} for userId=${data.userId}`);
+    })
+    .catch((err) => {
+      console.error(`[Pharmacy] Failed to send notification: ${err.message}`);
+    });
 };
 
 const createPrescription = async (req, res) => {
@@ -28,9 +33,11 @@ const createPrescription = async (req, res) => {
     const prescription = await pharmacyService.create(data);
 
     // Non-blocking notification to notify service
+    // userId = patientId so the PATIENT receives the notification (not the doctor)
     const medNames = (req.body.medications || []).map((m) => m.name).join(', ');
     sendNotification(
       {
+        userId: req.body.patientId,
         title: 'Prescription Created',
         message: `Prescription for ${req.body.patientName}: ${medNames}`,
         type: 'prescription',
