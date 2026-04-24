@@ -7,10 +7,8 @@ spec:
   parentRefs:
     - name: carenest-gateway
       namespace: {{ .Values.namespace }}
-
   rules:
-
-    # ── Auth Service (/api/auth/*) ────────────────────
+    # ── Auth Service — keep /api/auth prefix ──────────
     - matches:
         - path:
             type: PathPrefix
@@ -19,7 +17,7 @@ spec:
         - name: auth-service
           port: {{ .Values.ports.auth }}
 
-    # ── Appointment Service (/api/appointments/*) ─────
+    # ── Appointment Service ───────────────────────────
     - matches:
         - path:
             type: PathPrefix
@@ -28,7 +26,7 @@ spec:
         - name: appointment-service
           port: {{ .Values.ports.appointment }}
 
-    # ── Pharmacy Service (/api/prescriptions/*) ───────
+    # ── Pharmacy Service ──────────────────────────────
     - matches:
         - path:
             type: PathPrefix
@@ -37,7 +35,7 @@ spec:
         - name: pharmacy-service
           port: {{ .Values.ports.pharmacy }}
 
-    # ── Notify Service (/api/notifications/*) ─────────
+    # ── Notify Service ────────────────────────────────
     - matches:
         - path:
             type: PathPrefix
@@ -46,7 +44,7 @@ spec:
         - name: notify-service
           port: {{ .Values.ports.notify }}
 
-    # ── Frontend (catch-all /*) ───────────────────────
+    # ── Frontend catch-all ────────────────────────────
     - matches:
         - path:
             type: PathPrefix

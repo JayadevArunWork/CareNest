@@ -1,28 +1,35 @@
-# ──────────────────────────────────────────────────────
-# Envoy Gateway — Gateway resource
-# ──────────────────────────────────────────────────────
-# Requires: gateway.envoyproxy.io CRDs + Envoy Gateway controller installed
-#
-# The Gateway creates Envoy proxy pods that handle all inbound traffic.
-# Infrastructure override ensures the auto-created Service uses NodePort
-# instead of LoadBalancer (required for bare-metal / EC2 without a cloud LB controller).
+# ============================================================
+# EnvoyProxy CRD — NodePort only, no port patch
+# The port patch was causing Gateway PROGRAMMED=False
+# ============================================================
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: carenest-proxy-config
+  namespace: {{ .Values.namespace }}
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: NodePort
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: carenest-gateway
   namespace: {{ .Values.namespace }}
-  labels:
-    app.kubernetes.io/name: carenest
-  annotations:
-    # Force the auto-provisioned Envoy proxy service to use NodePort
-    # This is critical for EC2/bare-metal where LoadBalancer type won't work
-    gateway.envoyproxy.io/service-type: NodePort
 spec:
   gatewayClassName: {{ .Values.gateway.className }}
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: carenest-proxy-config
   listeners:
     - name: http
       protocol: HTTP
-      port: {{ .Values.gateway.port }}
+      port: 80
       allowedRoutes:
         namespaces:
           from: Same

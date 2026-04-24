@@ -1,14 +1,14 @@
-# ──────────────────────────────────────────────────────
-# CareNest Network Policies
-# ──────────────────────────────────────────────────────
-# Default deny + explicit allow rules for least-privilege networking.
+# ============================================================
+# CareNest NetworkPolicy — Fixed for envoy-gateway-system
 #
-# CRITICAL: The Envoy Gateway proxy pods MUST be allowed to reach all
-# backend services. Without this, all traffic through the Gateway
-# returns 503 upstream connect timeout.
-# ──────────────────────────────────────────────────────
+# KEY FIX: Envoy proxy pods run in envoy-gateway-system namespace
+# NOT in carenest-dev. All backend ingress rules must allow
+# traffic from envoy-gateway-system namespace.
+# ============================================================
 
-# ── Default deny all ingress ─────────────────────────
+# ----------------------------------------------------------
+# POLICY 1: Default deny ALL ingress
+# ----------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -19,68 +19,347 @@ spec:
   policyTypes:
     - Ingress
 ---
-# ── Allow Envoy Gateway proxy → ALL services ─────────
-# The Envoy proxy pods are auto-created by Envoy Gateway controller
-# and labeled with gateway.envoyproxy.io/owning-gateway-name.
-# This is THE critical rule — without it, 503 errors occur.
+# ----------------------------------------------------------
+# POLICY 2: Default deny ALL egress
+# ----------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-from-envoy-gateway
+  name: default-deny-egress
   namespace: {{ .Values.namespace }}
 spec:
-  podSelector:
-    matchExpressions:
-      - key: app
-        operator: In
-        values: [auth, appointment, pharmacy, notify, frontend]
+  podSelector: {}
+  policyTypes:
+    - Egress
+---
+# ----------------------------------------------------------
+# POLICY 3: Allow DNS for ALL pods
+# ----------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# ----------------------------------------------------------
+# POLICY 4: Allow ALL ingress from envoy-gateway-system
+#
+# CRITICAL FIX: Envoy proxy pods live in envoy-gateway-system
+# namespace. They need to reach ALL backend services.
+# This single rule fixes all 503 errors.
+# ----------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-from-envoy-gateway-system
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector: {}
   policyTypes:
     - Ingress
   ingress:
-    # Allow from Envoy proxy pods in the SAME namespace
-    - from:
-        - podSelector:
-            matchLabels:
-              gateway.envoyproxy.io/owning-gateway-name: carenest-gateway
-      ports:
-        - port: {{ .Values.ports.auth }}
-        - port: {{ .Values.ports.appointment }}
-        - port: {{ .Values.ports.pharmacy }}
-        - port: {{ .Values.ports.notify }}
-        - port: {{ .Values.ports.frontend }}
-    # Also allow from envoy-gateway-system namespace (controller)
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: envoy-gateway-system
-      ports:
-        - port: {{ .Values.ports.auth }}
-        - port: {{ .Values.ports.appointment }}
-        - port: {{ .Values.ports.pharmacy }}
-        - port: {{ .Values.ports.notify }}
-        - port: {{ .Values.ports.frontend }}
 ---
-# ── Allow external traffic → Envoy Gateway proxy pods ─
-# NodePort traffic needs to reach the Envoy proxy pods
+# ----------------------------------------------------------
+# POLICY 5: Auth service ingress + egress
+# ----------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-nodeport-to-envoy
+  name: allow-auth-ingress
   namespace: {{ .Values.namespace }}
 spec:
   podSelector:
     matchLabels:
-      gateway.envoyproxy.io/owning-gateway-name: carenest-gateway
+      app: auth
   policyTypes:
     - Ingress
   ingress:
-    # Allow all ingress to Envoy proxy pods (NodePort traffic)
-    - ports:
-        - port: {{ .Values.gateway.port }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+        - podSelector:
+            matchLabels:
+              app: appointment
+        - podSelector:
+            matchLabels:
+              app: pharmacy
+        - podSelector:
+            matchLabels:
+              app: notify
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.auth }}
 ---
-# ── Allow frontend to receive traffic from Envoy ─────
-# (Covered by allow-from-envoy-gateway above, but kept for
-# explicit clarity and backward compat with any direct access)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-auth-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: auth
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongo
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.mongo }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.redis }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# ----------------------------------------------------------
+# POLICY 6: Appointment service ingress + egress
+# ----------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-appointment-ingress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: appointment
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - podSelector:
+            matchLabels:
+              app: notify
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.appointment }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-appointment-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: appointment
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongo
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.mongo }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.redis }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: auth
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.auth }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: notify
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.notify }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# ----------------------------------------------------------
+# POLICY 7: Pharmacy service ingress + egress
+# ----------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pharmacy-ingress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: pharmacy
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.pharmacy }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pharmacy-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: pharmacy
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongo
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.mongo }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: auth
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.auth }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# ----------------------------------------------------------
+# POLICY 8: Notify service ingress + egress
+# ----------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-notify-ingress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: notify
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+        - podSelector:
+            matchLabels:
+              app: frontend
+        - podSelector:
+            matchLabels:
+              app: appointment
+        - podSelector:
+            matchLabels:
+              app: pharmacy
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.notify }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-notify-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: notify
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongo
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.mongo }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: auth
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.auth }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# ----------------------------------------------------------
+# POLICY 9: Frontend ingress + egress
+# ----------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -94,74 +373,70 @@ spec:
     - Ingress
   ingress:
     - from:
-        - podSelector:
+        - namespaceSelector:
             matchLabels:
-              gateway.envoyproxy.io/owning-gateway-name: carenest-gateway
+              kubernetes.io/metadata.name: envoy-gateway-system
       ports:
-        - port: {{ .Values.ports.frontend }}
-    {{- if .Values.haproxy.enabled }}
-    - from:
-        - podSelector:
-            matchLabels:
-              app: haproxy
-      ports:
-        - port: {{ .Values.ports.frontend }}
-    {{- end }}
+        - protocol: TCP
+          port: {{ .Values.ports.frontend }}
 ---
-# ── Allow backend services from Envoy + inter-service ─
-# Backends need traffic from Envoy Gateway AND from frontend
-# (frontend nginx proxies API calls to backends)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-backend-from-frontend
-  namespace: {{ .Values.namespace }}
-spec:
-  podSelector:
-    matchExpressions:
-      - key: app
-        operator: In
-        values: [auth, appointment, pharmacy, notify]
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: frontend
-      ports:
-        - port: {{ .Values.ports.auth }}
-        - port: {{ .Values.ports.appointment }}
-        - port: {{ .Values.ports.pharmacy }}
-        - port: {{ .Values.ports.notify }}
----
-# ── Allow backend-to-backend (appointment/pharmacy → notify) ─
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-notify-from-backends
+  name: allow-frontend-egress
   namespace: {{ .Values.namespace }}
 spec:
   podSelector:
     matchLabels:
-      app: notify
+      app: frontend
   policyTypes:
-    - Ingress
-  ingress:
-    - from:
+    - Egress
+  egress:
+    - to:
         - podSelector:
-            matchExpressions:
-              - key: app
-                operator: In
-                values: [appointment, pharmacy]
+            matchLabels:
+              app: auth
       ports:
-        - port: {{ .Values.ports.notify }}
+        - protocol: TCP
+          port: {{ .Values.ports.auth }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: appointment
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.appointment }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: pharmacy
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.pharmacy }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: notify
+      ports:
+        - protocol: TCP
+          port: {{ .Values.ports.notify }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
 ---
-# ── Allow MongoDB from backend services ──────────────
+# ----------------------------------------------------------
+# POLICY 10: MongoDB ingress + egress
+# ----------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-mongo-from-backends
+  name: allow-mongo-ingress
   namespace: {{ .Values.namespace }}
 spec:
   podSelector:
@@ -175,15 +450,22 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [auth, appointment, pharmacy, notify]
+                values:
+                  - auth
+                  - appointment
+                  - pharmacy
+                  - notify
       ports:
-        - port: {{ .Values.ports.mongo }}
+        - protocol: TCP
+          port: {{ .Values.ports.mongo }}
 ---
-# ── Allow Redis from backend services ────────────────
+# ----------------------------------------------------------
+# POLICY 11: Redis ingress
+# ----------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-redis-from-backends
+  name: allow-redis-ingress
   namespace: {{ .Values.namespace }}
 spec:
   podSelector:
@@ -197,35 +479,11 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [auth, appointment, pharmacy, notify]
+                values:
+                  - auth
+                  - appointment
+                  - pharmacy
+                  - notify
       ports:
-        - port: {{ .Values.ports.redis }}
----
-# ── Allow DNS resolution (kube-dns/CoreDNS) ──────────
-# Without this, pods cannot resolve service names
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-dns-egress
-  namespace: {{ .Values.namespace }}
-spec:
-  podSelector: {}
-  policyTypes:
-    - Egress
-  egress:
-    # Allow DNS queries to kube-system (CoreDNS)
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-      ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-    # Allow all other egress (inter-pod, external)
-    - to:
-        - podSelector: {}
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
+        - protocol: TCP
+          port: {{ .Values.ports.redis }}

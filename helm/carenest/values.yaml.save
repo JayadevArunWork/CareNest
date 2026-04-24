@@ -44,7 +44,7 @@ gateway:
   # Envoy Gateway Helm chart creates "eg" by default
   className: envoy-gateway-class
   # NodePort for external HAProxy EC2 to reach the Gateway
-  nodePort: 30386
+  nodePort: 30080
   # Port the Gateway listens on
   port: 80
   name: carenest-gateway
@@ -59,8 +59,8 @@ haproxy:
 # ── Worker Nodes (for HAProxy EC2 config) ─────────────
 # Replace with your actual worker node private IPs
 workerNodes:
-  - ip: "172.31.42.243"
-  - ip: "172.31.41.253"
+  - ip: "WORKER_NODE_1_PRIVATE_IP"
+  - ip: "WORKER_NODE_2_PRIVATE_IP"
 
 # ── Resources ─────────────────────────────────────────
 resources:
